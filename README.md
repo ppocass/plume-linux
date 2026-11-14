@@ -45,6 +45,28 @@ couche qui touche au bureau Linux.
 
 ## Installation
 
+### 1. Swift
+
+Plume est ecrit en Swift. Sous Linux, la toolchain officielle existe, mais
+elle n'est pas installee par defaut :
+
+```bash
+# Debian 13 / Ubuntu 24.04+
+sudo apt install swiftlang
+```
+
+C'est un paquet de 444 Mo. Si tu preferes la toolchain officielle (plus
+recente, et c'est celle qui a servi a tester) :
+
+```bash
+curl -O https://download.swift.org/swift-6.4.2-release/debian13/swift-6.4.2-RELEASE/swift-6.4.2-RELEASE-debian13.tar.gz
+sudo tar xzf swift-6.4.2-RELEASE-debian13.tar.gz -C /opt
+sudo mv /opt/swift-6.4.2-RELEASE-debian13 /opt/swift
+export PATH=/opt/swift/usr/bin:$PATH   # a mettre dans ~/.bashrc
+```
+
+### 2. Plume
+
 ```bash
 git clone https://github.com/ppocass/plume-linux.git
 cd plume-linux
@@ -55,12 +77,11 @@ Le script installe `parecord`/`xdotool` si besoin, compile `whisper-server`
 (le meme que sur macOS), telecharge le modele Whisper (548 Mo, verifie par
 SHA-256) et installe le binaire dans `~/bin/plume`.
 
-Il faut **Swift 6.4+** pour compiler. Sur Debian/Ubuntu :
-
-```bash
-# Debian 13 / Ubuntu 24.04+
-sudo apt install swiftlang      # ou la toolchain officielle swift.org
-```
+> Le depot ne contient **pas** de binaire tout fait : un binaire Swift lie
+> 146 Mo de bibliotheques (`libswiftCore`, `libFoundation`, `libdispatch`).
+> Le livrer obligerait a empaqueter la toolchain entiere, ou a la demander
+> quand meme a l'execution. La source, elle, se compile sur ta machine en
+> quelques minutes — et c'est aussi ce qui te permet de lire ce qui tourne.
 
 > **Piege connu** : le paquet `swiftlang` de Debian 13 est en Swift **6.0.3**,
 > qui refuse les virgules finales dans les appels de fonction (ajoutees en 6.1).
