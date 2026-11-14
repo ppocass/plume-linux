@@ -17,25 +17,43 @@ une version de test, pas une version officielle.
 
 ## Installation
 
+Ouvre un terminal et colle ces trois lignes :
+
 ```bash
 git clone https://github.com/ppocass/plume-linux.git
 cd plume-linux
 ./install.sh
 ```
 
-**Rien à compiler pour Plume.** Il arrive en binaires prêts pour x86_64,
-compilés sous Ubuntu 24.04 — donc compatibles **Linux Mint 22**, Ubuntu 22.04
-et au-delà, Debian 12 et 13.
+Le script te dit ce qu'il fait à chaque étape, et te demande avant d'installer
+quoi que ce soit sur ta machine. Compte **5 à 10 minutes**.
 
-Le script fait trois choses :
+### Une ligne de plus, et c'est tout
 
-1. installe les outils manquants (GTK4, parecord, xdotool) — il demande avant
-2. télécharge `plume` et `plume-pill` depuis la release, et les vérifie
-3. compile `whisper-server` et télécharge le modèle (548 Mo, SHA-256 vérifié)
+À la fin, le terminal ne sait pas encore où trouver la commande `plume`. Colle
+ceci :
 
-Comptez **5 à 10 minutes**, dont l'essentiel pour whisper.cpp.
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+```
 
-### Si tu préfères compiler toi-même
+Puis **ferme le terminal et rouvre-le**. Vérifie que tout est en place :
+
+```bash
+plume check
+```
+
+### Ce que l'installation a fait
+
+1. installé les outils manquants (GTK4, parecord, xdotool) — après ton accord
+2. téléchargé `plume` et `plume-pill` depuis la release, et vérifié qu'ils
+   s'exécutent
+3. compilé `whisper-server` (le moteur) et téléchargé le modèle Whisper
+   (548 Mo, empreinte SHA-256 vérifiée)
+
+Rien n'est envoyé sur Internet : ni ta voix, ni le texte, ni quoi que ce soit.
+
+### Si tu préfères compiler Plume toi-même
 
 `./build.sh release` demande **Swift**. Sur Debian 13 : `sudo apt install
 swiftlang`. Ailleurs, la [toolchain officielle](https://www.swift.org/install/linux/)
