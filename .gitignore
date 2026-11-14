@@ -1,2 +1,3 @@
-# Le binaire est compile par install.sh, pas versionne
-plume
+.build/
+*.o
+plume-pill

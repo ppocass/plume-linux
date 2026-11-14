@@ -73,7 +73,7 @@ func runAndWait<T>(_ work: @escaping () async -> T) -> T {
         sem.signal()
     }
     while sem.wait(timeout: .now() + 0.02) == .timedOut {
-        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
     }
     return result!
 }
@@ -86,7 +86,7 @@ func runAndWait<T>(_ work: @escaping () async throws -> T) throws -> T {
         sem.signal()
     }
     while sem.wait(timeout: .now() + 0.02) == .timedOut {
-        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
     }
     return try result!.get()
 }
@@ -95,7 +95,9 @@ func runAndWait<T>(_ work: @escaping () async throws -> T) throws -> T {
 
 let args = Array(CommandLine.arguments.dropFirst())
 let command = args.first ?? "help"
-let modelID = "whisper-turbo-q5"
+// Le modele actif : celui que l'utilisateur a choisi (`plume models use`),
+// sinon Whisper Turbo compact. Le catalogue est celui de Plume, inchange.
+let modelID = ModelsCLI.selectedID
 
 // Sous Linux, 8090 est souvent deja pris (ici par crowdsec, ailleurs par
 // un autre service) : PLUME_PORT deplace le moteur sans toucher au code.
@@ -111,6 +113,9 @@ func describe(_ verdict: SpeechGate.Verdict) -> String {
 }
 
 switch command {
+
+case "models":
+    ModelsCLI.run(Array(args.dropFirst()))
 
 case "check":
     let m = ModelCatalog.model(modelID)
@@ -145,12 +150,26 @@ case "text":
     let ranges = SpeechGate.chunks(of: samples, range: 0..<samples.count)
     print("morceaux     : \(ranges.count)")
     let model = ModelCatalog.model(modelID) ?? ModelCatalog.all[0]
+    // S'attacher au moteur s'il tourne, le lancer sinon (regle de SpeechEngine).
+    // ensureRunning rend le port REEL (8091 si 8090 est pris par autre chose) :
+    // on le pose dans le catalogue pour que SpeechEngine construise son URL
+    // sur ce port-la, pas sur celui du catalogue macOS.
+    guard let enginePort = EngineLauncher.ensureRunning(model) else {
+        FileHandle.standardError.write(Data(
+            "moteur indisponible : verifie ~/.config/plume/local.json\n".utf8))
+        exit(4)
+    }
+    ModelCatalog.portOverride = enginePort
+    // ⚠️ Re-lire le modele APRES avoir pose le port : la valeur lue avant
+    // garde le port du catalogue (8090), et SpeechEngine appellerait le mauvais.
+    let engineModel = ModelCatalog.model(modelID) ?? model
     let text = runAndWait { () -> String in
         var full = ""
         for r in ranges {
-            if let t = try? await SpeechEngine.engine(for: model)
-                .transcribe(wav: SpeechGate.wav(samples[r]), language: "fr") {
-                if !t.isEmpty { full += (full.isEmpty ? "" : " ") + t }
+            if let t = try? await SpeechEngine.engine(for: engineModel)
+                .transcribe(wav: SpeechGate.wav(samples[r]), language: "fr"),
+               !t.isEmpty {
+                full += (full.isEmpty ? "" : " ") + t
             }
         }
         return full
@@ -158,20 +177,40 @@ case "text":
     print("transcrit    : \(text.isEmpty ? "(rien)" : text)")
 
 case "listen", "trigger":
+    // 0. La pastille, si elle est installee et qu'il y a un affichage.
+    //    Elle n'est pas indispensable : sans elle, la dictee marche quand meme.
+    let pill = PillClient()
+    pill.start()
+
     // 1. Le micro.
     let rec = AudioRecorder()
+    // Le niveau du micro alimente les barres de la pastille, ~20 fois/s,
+    // exactement comme le LevelMeter de l'app macOS.
+    rec.onLevel = { level in pill.level(level) }
     do {
         try rec.start()
     } catch {
+        pill.hide()
+        pill.finish(after: 0)
         print("micro indisponible : \(error.localizedDescription)")
         exit(2)
     }
+    pill.recording()
     FileHandle.standardError.write(Data("Plume écoute… (Entrée pour arrêter)\n".utf8))
 
     if command == "listen" {
-        var b: UInt8 = 0
-        while read(0, &b, 1) > 0 {
-            if b == 10 || b == 13 { break }
+        // ⚠️ Si stdin n'est pas un terminal (pipe, raccourci du bureau, script),
+        // `read` rend 0 tout de suite et la dictee s'arrete en quelques
+        // millisecondes : « silence (trop court) ». On ne lit donc que sur un
+        // vrai terminal ; sinon on attend la duree demandee, comme `trigger`.
+        if isatty(0) != 0 {
+            var b: UInt8 = 0
+            while read(0, &b, 1) > 0 {
+                if b == 10 || b == 13 { break }
+            }
+        } else {
+            let secs = Double(ProcessInfo.processInfo.environment["PLUME_SECONDS"] ?? "") ?? 12
+            Thread.sleep(forTimeInterval: secs)
         }
     } else {
         // `trigger` : sans terminal (raccourci du bureau), on enregistre un
@@ -182,9 +221,12 @@ case "listen", "trigger":
 
     // 2. L'audio, passe par la barriere anti-silence de Plume.
     let samples = rec.stop()
+    pill.processing()
     let verdict = SpeechGate.analyse(samples)
     FileHandle.standardError.write(Data("fin : \(describe(verdict))\n".utf8))
     guard let range = verdict.range else {
+        pill.hide()
+        pill.finish(after: 0)
         print("")
         exit(0)
     }
@@ -192,31 +234,52 @@ case "listen", "trigger":
     // 3. La transcription, decoupee comme le fait l'app.
     let ranges = SpeechGate.chunks(of: samples, range: range)
     let model = ModelCatalog.model(modelID) ?? ModelCatalog.all[0]
+    // Le moteur du modele choisi : `plume models use` change le port, encore
+    // faut-il que quelqu'un lance le serveur dessus.
+    guard let enginePort = EngineLauncher.ensureRunning(model) else {
+        pill.hide()
+        pill.finish(after: 0)
+        FileHandle.standardError.write(Data(
+            "moteur indisponible : verifie ~/.config/plume/local.json\n".utf8))
+        exit(4)
+    }
+    ModelCatalog.portOverride = enginePort
+    // Meme piege que dans `text` : re-lire apres avoir pose le port.
+    let engineModel = ModelCatalog.model(modelID) ?? model
     do {
         let full = try runAndWait { () -> String in
             var acc = ""
             for r in ranges {
-                let t = try await SpeechEngine.engine(for: model)
+                let t = try await SpeechEngine.engine(for: engineModel)
                     .transcribe(wav: SpeechGate.wav(samples[r]), language: "fr")
                 if !t.isEmpty { acc += (acc.isEmpty ? "" : " ") + t }
             }
             return acc
         }
-        guard !full.isEmpty else { print(""); exit(0) }
+        guard !full.isEmpty else {
+            pill.hide()
+            pill.finish(after: 0)
+            print("")
+            exit(0)
+        }
 
         // 4. Le lissage (facultatif : sans cle API il rend nil, on colle quand meme).
         let clean = runAndWait { await Polisher.polish(full, language: .fr) } ?? full
 
         // 5. Le collage au curseur.
-        if Shell.paste(clean) {
-            print(clean)
-        } else {
+        let pasted = Shell.paste(clean)
+        if !pasted {
             FileHandle.standardError.write(Data("xdotool absent : texte affiche seulement\n".utf8))
-            print(clean)
         }
+        // La pastille montre le ✓ vert un instant, comme sur macOS.
+        pill.pasted()
+        pill.finish(after: 0.9)
+        print(clean)
         _ = runAndWait { await SpeechEngine.engine(for: model)
             .scheduleIdleRelease(after: SpeechEngine.defaultIdleSeconds) }
     } catch {
+        pill.hide()
+        pill.finish(after: 0)
         FileHandle.standardError.write(Data("echec du moteur : \(error.localizedDescription)\n".utf8))
         exit(3)
     }
@@ -228,6 +291,7 @@ default:
       plume listen      dicter au clavier (Entree pour commencer et arreter)
       plume trigger     dicter depuis un raccourci du bureau (duree : PLUME_SECONDS, 15 s par defaut)
       plume text x.wav  transcrire un fichier WAV
+      plume models      choisir un modele (et le telecharger)
       plume check       verifier l'installation
 
     Le moteur whisper-server doit tourner. Voir install.sh.
