@@ -92,14 +92,20 @@ say ""
 say "${BOLD}3. Plume${RESET}"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-if [ -f "$HERE/plume" ]; then
-  install -m 755 "$HERE/plume" "$BIN/plume"
-elif [ -f "$HERE/.build/release/plume" ]; then
+
+if [ -f "$HERE/.build/release/plume" ]; then
   install -m 755 "$HERE/.build/release/plume" "$BIN/plume"
+  ok "plume dans $BIN"
 else
-  die "binaire introuvable — compile d'abord : swift build -c release"
+  # Pas de binaire livraison : on compile ici. C'est aussi ce qui permet a
+  # celui qui installe de lire exactement ce qui tourne.
+  command -v swift >/dev/null || die "Swift est requis : sudo apt install swiftlang (voir le README)"
+  say "  Compilation de Plume…"
+  ( cd "$HERE" && swift build -c release ) >/dev/null 2>&1 \
+    || die "la compilation a echoue : lance \`swift build -c release\` dans $HERE pour voir pourquoi"
+  install -m 755 "$HERE/.build/release/plume" "$BIN/plume"
+  ok "plume compile et installe dans $BIN"
 fi
-ok "plume dans $BIN"
 
 CONFIG="$HOME/.config/plume"
 mkdir -p "$CONFIG"
