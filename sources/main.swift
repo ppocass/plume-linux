@@ -101,8 +101,13 @@ let modelID = ModelsCLI.selectedID
 
 // Sous Linux, 8090 est souvent deja pris (ici par crowdsec, ailleurs par
 // un autre service) : PLUME_PORT deplace le moteur sans toucher au code.
+// Ordre : PLUME_PORT (explicite), puis le port enregistre a l'installation,
+// puis celui du catalogue. Sans cela, `plume check` annoncait 8090 pendant
+// que le service systemd ecoutait sur 8091.
 if let raw = ProcessInfo.processInfo.environment["PLUME_PORT"], let n = Int(raw) {
     ModelCatalog.portOverride = n
+} else if let saved = LocalConfig.current?.enginePort {
+    ModelCatalog.portOverride = saved
 }
 
 /// Le verdict de la barriere anti-silence, tel que Plume le calcule.

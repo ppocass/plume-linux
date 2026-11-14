@@ -88,8 +88,14 @@ enum ModelsCLI {
             let size = formatBytes(m.downloadSize)
             // installedFolder verifie que CHAQUE fichier est la, avec la bonne
             // taille : un dossier vide ne compte pas comme installe.
-            let installed = ModelLocation.installedFolder(m) != nil
-            let state = installed ? "installé" : "à télécharger"
+            // Le modele en ligne n'a rien a telecharger : c'est un service
+            // distant, configure avec sa propre cle API.
+            let state: String
+            if m.family == .cloud {
+                state = "service distant"
+            } else {
+                state = ModelLocation.installedFolder(m) != nil ? "installé" : "à télécharger"
+            }
             print("  \(mark) \(m.id)")
             print("      \(m.name) — \(size), \(state)")
             print("      \(m.summary)")

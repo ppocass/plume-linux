@@ -25,6 +25,12 @@ import Security
 /// ```
 /// Les deux dernières ne servent qu'à `make-app.sh` / `make-dmg.sh`.
 struct LocalConfig: Decodable {
+    /// Le port du moteur, choisi a l'installation. Sous Linux, 8090 est
+    /// souvent deja pris (Docker, crowdsec) : install.sh ecrit ici le port
+    /// retenu, pour que le binaire et le service systemd soient d'accord sans
+    /// dependre d'une variable d'environnement (un raccourci du bureau n'en a
+    /// pas).
+    var enginePort: Int?
     struct Polish: Decodable {
         var name: String?
         var url: String

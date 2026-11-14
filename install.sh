@@ -153,10 +153,11 @@ if [ ! -f "$CONFIG/local.json" ]; then
   "whisper": {
     "binary": "$BIN/whisper-server",
     "model": "$MODELS/ggml-large-v3-turbo-q5_0.bin"
-  }
+  },
+  "enginePort": $PORT
 }
 EOF
-  ok "configuration dans $CONFIG/local.json"
+  ok "configuration dans $CONFIG/local.json (port $PORT)"
 else
   ok "configuration deja presente (gardee telle quelle)"
 fi
@@ -165,8 +166,8 @@ fi
 PORT=8090
 if command -v ss >/dev/null && ss -lptn 2>/dev/null | grep -q ":8090 "; then
   PORT=8091
-  warn "le port 8090 est deja pris : le moteur prendra 8091"
-  warn "  ajoute PLUME_PORT=$PORT a ton environnement (voir README)"
+  warn "le port 8090 est deja pris : le moteur prendra $PORT"
+  warn "  (le port est enregistre dans la configuration, rien a faire a la main)"
 fi
 
 mkdir -p "$HOME/.config/systemd/user"
