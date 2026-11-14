@@ -30,7 +30,15 @@
 //      disparait.
 
 #include <gtk/gtk.h>
+// gtk4-layer-shell n'existe pas dans tous les depots (absent d'Ubuntu 24.04,
+// donc de Linux Mint 22). Sans lui, la pastille fonctionne sous X11 — le cas
+// courant — et ne se place simplement pas sous Wayland.
+#if __has_include(<gtk4-layer-shell.h>)
 #include <gtk4-layer-shell.h>
+#define HAVE_LAYER_SHELL 1
+#else
+#define HAVE_LAYER_SHELL 0
+#endif
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <gdk/x11/gdkx.h>
@@ -281,6 +289,7 @@ int main(int argc, char **argv) {
     gtk_widget_set_can_focus(window, FALSE);
     gtk_widget_set_size_request(window, PILL_W, PILL_H);
 
+#if HAVE_LAYER_SHELL
     if (wayland) {
         gtk_layer_init_for_window(GTK_WINDOW(window));
         gtk_layer_set_layer(GTK_WINDOW(window), GTK_LAYER_SHELL_LAYER_OVERLAY);
@@ -288,6 +297,12 @@ int main(int argc, char **argv) {
         gtk_layer_set_margin(GTK_WINDOW(window), GTK_LAYER_SHELL_EDGE_BOTTOM, MARGIN_BOTTOM);
         gtk_layer_set_namespace(GTK_WINDOW(window), "plume-pill");
     }
+#else
+    if (wayland) {
+        fprintf(stderr, "plume-pill : compile sans gtk4-layer-shell, "
+                        "le placement Wayland est indisponible\n");
+    }
+#endif
 
     provider = gtk_css_provider_new();
     gtk_style_context_add_provider_for_display(

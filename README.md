@@ -23,20 +23,24 @@ cd plume-linux
 ./install.sh
 ```
 
-Le script installe les outils manquants (avec `apt`, après votre accord),
-compile `plume` et `plume-pill`, compile `whisper-server`, télécharge le modèle
-Whisper (548 Mo, vérifié par SHA-256) et met en place le service du moteur.
+**Rien à compiler pour Plume.** Il arrive en binaires prêts pour x86_64,
+compilés sous Ubuntu 24.04 — donc compatibles **Linux Mint 22**, Ubuntu 22.04
+et au-delà, Debian 12 et 13.
 
-Comptez **10 à 15 minutes**, surtout pour la compilation de whisper.cpp.
+Le script fait trois choses :
 
-### Ce qu'il faut
+1. installe les outils manquants (GTK4, parecord, xdotool) — il demande avant
+2. télécharge `plume` et `plume-pill` depuis la release, et les vérifie
+3. compile `whisper-server` et télécharge le modèle (548 Mo, SHA-256 vérifié)
 
-- **Debian 13 / Ubuntu 24.04+** (ou une distribution avec GTK4 et Swift)
-- **Swift** : `sudo apt install swiftlang` — ou la toolchain officielle
-  [swift.org](https://www.swift.org/install/linux/)
-- **X11** (le cas testé). Wayland fonctionne, avec une limite pour le collage
-  (voir plus bas).
-- ~3 Go d'espace disque (la toolchain Swift, le modèle, la compilation)
+Comptez **5 à 10 minutes**, dont l'essentiel pour whisper.cpp.
+
+### Si tu préfères compiler toi-même
+
+`./build.sh release` demande **Swift**. Sur Debian 13 : `sudo apt install
+swiftlang`. Ailleurs, la [toolchain officielle](https://www.swift.org/install/linux/)
+— **elle n'existe pas dans les dépôts de Mint 22**. Le binaire produit pèse
+81 Mo, bibliothèque Swift embarquée.
 
 ## Utilisation
 

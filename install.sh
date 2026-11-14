@@ -1,15 +1,17 @@
 #!/bin/bash
 # Plume pour Linux — installation.
 #
-# Ce script fait quatre choses, et rien d'autre :
-#   1. installe les outils systeme manquants (parecord, xdotool, gtk4)
-#   2. compile plume et plume-pill
-#   3. compile whisper-server et telecharge le modele Whisper
-#   4. installe dans ~/.local/bin, avec le service du moteur
+# Rien a compiler, rien a installer de lourd : Plume arrive en binaires prets
+# pour x86_64 (compiles sous Ubuntu 24.04, donc compatibles Linux Mint 22,
+# Debian 12/13, Ubuntu 22.04 et au-dela). Il ne reste qu'a preparer le moteur
+# whisper-server et son modele.
 #
-# Rien n'est ecrit hors de : ~/.local/bin, ~/.local/share/plume,
-# ~/.config/plume, ~/.config/systemd/user (et ~/.cache/plume pour la compilation).
-
+# Trois etapes, et rien d'autre :
+#   1. outils systeme (parecord, xdotool, gtk4) par apt
+#   2. binaires Plume depuis GitHub
+#   3. moteur whisper.cpp + modele Whisper, verifie par SHA-256
+#
+# Rien n'est ecrit hors de : ~/.local/bin, ~/.local/share/plume, ~/.config/plume
 set -euo pipefail
 
 BOLD=$'\033[1m'; DIM=$'\033[2m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'
@@ -24,6 +26,7 @@ BIN="$HOME/.local/bin"
 DATA="$HOME/.local/share/plume"
 MODELS="$DATA/models"
 CONFIG="$HOME/.config/plume"
+VER="0.1.0"
 
 say ""
 say "${BOLD}Plume pour Linux${RESET}"
@@ -40,7 +43,6 @@ command -v cmake    >/dev/null || missing+=(cmake)
 command -v git      >/dev/null || missing+=(git)
 command -v gcc      >/dev/null || missing+=(build-essential)
 pkg-config --exists gtk4 2>/dev/null || missing+=(libgtk-4-dev)
-command -v swift    >/dev/null || missing+=(swiftlang)
 
 if [ ${#missing[@]} -gt 0 ]; then
   say "  Il manque : ${missing[*]}"
@@ -51,57 +53,74 @@ if [ ${#missing[@]} -gt 0 ]; then
         sudo apt-get update -qq
         sudo apt-get install -y "${missing[@]}" || die "installation impossible"
         ;;
-      *) die "installe-les puis relance ce script" ;;
+      *) die "installe-les puis relance ce script : sudo apt install ${missing[*]}" ;;
     esac
   else
     die "installe-les puis relance : sudo apt install ${missing[*]}"
   fi
 fi
-ok "parecord, xdotool, cmake, git, gcc, gtk4, swift"
+ok "parecord, xdotool, cmake, git, gcc, gtk4"
 
-# pkg-config gtk4-layer-shell : facultatif (seulement pour Wayland).
-if ! pkg-config --exists gtk4-layer-shell-0 2>/dev/null; then
-  warn "gtk4-layer-shell absent : la pastille marchera, mais sous Wayland elle ne se placera pas en bas."
-  warn "  Pour l'avoir : sudo apt install libgtk4-layer-shell-dev"
-fi
-
-# --- 2. Compiler Plume -----------------------------------------------------
+# --- 2. Plume --------------------------------------------------------------
 say ""
-say "${BOLD}2. Compilation de Plume${RESET}"
+say "${BOLD}2. Plume${RESET}"
+say "${DIM}Binaires prets, compiles pour x86_64 (Ubuntu 24.04 et au-dela).${RESET}"
 
-cd "$HERE"
-# Le binaire est gros (81 Mo, bibliotheque Swift embarquee) : on ne le refait
-# que s'il manque.
-if [ ! -x "$HERE/.build/release/plume" ]; then
-  say "  Compilation… (quelques minutes la premiere fois)"
-  ./build.sh release 2>&1 | grep -vE "^\s*$" | tail -5 || die "la compilation a echoue : lance ./build.sh release pour voir pourquoi"
+mkdir -p "$BIN" "$MODELS" "$HOME/.cache/plume"
+
+install_binary() {
+  local name="$1"
+  # 1. a cote du script (depot clone avec les binaires), 2. GitHub, 3. compile
+  if [ -x "$HERE/bin/$name" ]; then
+    install -m 755 "$HERE/bin/$name" "$BIN/$name"
+    return 0
+  fi
+  local url="https://github.com/ppocass/plume-linux/releases/download/v$VER/$name.gz"
+  if curl -fsSL --retry 3 --retry-delay 3 -o "$BIN/$name.gz" "$url" 2>/dev/null; then
+    gzip -dc "$BIN/$name.gz" > "$BIN/$name"
+    rm -f "$BIN/$name.gz"
+    chmod 755 "$BIN/$name"
+    # Un binaire tronque ne s execute pas. On verifie qu'il s'agit bien d'un
+    # ELF x86-64 complet — pas en le lançant : `plume-pill` n'a pas de --help,
+    # il se lance et attend sur son entree standard.
+    head -c 4 "$BIN/$name" | grep -q $'\x7fELF' || { rm -f "$BIN/$name"; return 1; }
+    if [ "$name" = "plume" ]; then
+      "$BIN/$name" --help >/dev/null 2>&1 || { rm -f "$BIN/$name"; return 1; }
+    fi
+    return 0
+  fi
+  return 1
+}
+
+if install_binary plume; then
+  ok "plume dans $BIN/plume"
+else
+  warn "telechargement impossible : on compile sur place (il faut Swift)"
+  if [ -x "$HERE/build.sh" ] && command -v swift >/dev/null; then
+    ( cd "$HERE" && ./build.sh release ) || die "la compilation a echoue"
+    install -m 755 "$HERE/.build/release/plume" "$BIN/plume"
+    ok "plume compile et installe"
+  else
+    die "Swift est requis pour compiler : voir le README"
+  fi
 fi
-[ -x "$HERE/.build/release/plume" ] || die "binaire plume absent apres compilation"
-ok "plume compile"
 
-mkdir -p "$BIN"
-install -m 755 "$HERE/.build/release/plume" "$BIN/plume"
-ok "plume dans $BIN/plume"
-
-if [ -x "$HERE/.build/plume-pill" ]; then
-  install -m 755 "$HERE/.build/plume-pill" "$BIN/plume-pill"
+if install_binary plume-pill; then
   ok "plume-pill dans $BIN/plume-pill"
 else
-  warn "pastille non compilee (gtk4 absent) : la dictee marchera sans elle"
+  warn "pastille non installee : la dictee marchera sans l'indicateur visuel"
 fi
 
 # --- 3. Le moteur ----------------------------------------------------------
 say ""
 say "${BOLD}3. Moteur whisper-server${RESET}"
-say "${DIM}Le meme que sur macOS : whisper.cpp compile en serveur local.${RESET}"
-
-mkdir -p "$MODELS" "$HOME/.cache/plume"
+say "${DIM}Le meme que sur macOS : whisper.cpp, en serveur local.${RESET}"
 
 if [ ! -x "$BIN/whisper-server" ]; then
   BUILD="$HOME/.cache/plume/whisper.cpp"
   if [ ! -d "$BUILD" ]; then
     say "  Recuperation de whisper.cpp (v1.9.5)…"
-    git clone --depth 1 --branch v1.9.5 https://github.com/ggml-org/whisper.cpp.git "$BUILD" >/dev/null 2>&1 \
+    git clone --depth 1 --branch v1.9.5 -q https://github.com/ggml-org/whisper.cpp.git "$BUILD" \
       || die "clone impossible"
   fi
   say "  Compilation… (quelques minutes)"
@@ -113,46 +132,28 @@ if [ ! -x "$BIN/whisper-server" ]; then
 fi
 ok "whisper-server dans $BIN/whisper-server"
 
-# Les modeles du catalogue Plume, avec leur empreinte SHA-256.
-#   id                       fichier                              taille       sha256
-download_model() {
-  local id="$1" file="$2" sha="$3" label="$4"
-  local dest="$MODELS/$file"
-  if [ -f "$dest" ]; then
-    ok "$label deja telecharge"
-    return 0
-  fi
-  say "  Telechargement de $label…"
-  curl -fL --progress-bar -o "$dest.part" \
-    "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/$file" \
-    || { rm -f "$dest.part"; die "telechargement impossible"; }
-  local actual
-  actual="$(sha256sum "$dest.part" | cut -d' ' -f1)"
-  if [ "$actual" != "$sha" ]; then
-    rm -f "$dest.part"
-    die "le modele $label est corrompu (sha256 different : $actual)"
-  fi
-  mv "$dest.part" "$dest"
-  ok "$label verifie ($(du -h "$dest" | cut -f1))"
-}
+MODEL="$MODELS/ggml-large-v3-turbo-q5_0.bin"
+SHA="394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2"
+if [ ! -f "$MODEL" ]; then
+  say "  Telechargement du modele Whisper Turbo compact (548 Mo)…"
+  curl -fL --progress-bar -o "$MODEL.part" \
+    "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q5_0.bin" \
+    || { rm -f "$MODEL.part"; die "telechargement impossible"; }
+  actual="$(sha256sum "$MODEL.part" | cut -d' ' -f1)"
+  [ "$actual" = "$SHA" ] || { rm -f "$MODEL.part"; die "modele corrompu (sha256 different)"; }
+  mv "$MODEL.part" "$MODEL"
+fi
+ok "modele Whisper verifie ($(du -h "$MODEL" | cut -f1))"
 
-# Le modele par defaut : Whisper Turbo compact, le meilleur rapport
-# rapidite/precision en CPU (574 Mo).
-download_model whisper-turbo-q5 ggml-large-v3-turbo-q5_0.bin \
-  394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2 \
-  "Whisper Turbo compact"
-
-# --- 4. Configuration et service ------------------------------------------
+# --- 4. Configuration ------------------------------------------------------
 say ""
 say "${BOLD}4. Configuration${RESET}"
 
-# Le port : 8090 est celui du catalogue Plume, mais il est souvent deja pris
-# (Docker, crowdsec…). On le choisit AVANT d'ecrire la configuration.
+# Le port : 8090 est celui du catalogue Plume, souvent deja pris.
 PORT=8090
 if command -v ss >/dev/null && ss -lptn 2>/dev/null | grep -q ":8090 "; then
   PORT=8091
   warn "le port 8090 est deja pris : le moteur prendra $PORT"
-  warn "  (le port est enregistre dans la configuration, rien a faire a la main)"
 fi
 
 mkdir -p "$CONFIG"
@@ -161,7 +162,7 @@ if [ ! -f "$CONFIG/local.json" ]; then
 {
   "whisper": {
     "binary": "$BIN/whisper-server",
-    "model": "$MODELS/ggml-large-v3-turbo-q5_0.bin"
+    "model": "$MODEL"
   },
   "enginePort": $PORT
 }
@@ -171,53 +172,28 @@ else
   ok "configuration deja presente (gardee telle quelle)"
 fi
 
-mkdir -p "$HOME/.config/systemd/user"
-cat > "$HOME/.config/systemd/user/plume-engine.service" <<EOF
-[Unit]
-Description=Plume — moteur whisper-server
-After=default.target
-
-[Service]
-ExecStart=$BIN/whisper-server -m $MODELS/ggml-large-v3-turbo-q5_0.bin --host 127.0.0.1 --port $PORT -t 4
-Restart=on-failure
-Nice=10
-
-[Install]
-WantedBy=default.target
-EOF
-systemctl --user daemon-reload 2>/dev/null || true
-if systemctl --user enable --now plume-engine.service 2>/dev/null; then
-  ok "service plume-engine actif (port $PORT)"
-else
-  warn "systemd utilisateur indisponible : lance le moteur a la main :"
-  warn "  $BIN/whisper-server -m $MODELS/ggml-large-v3-turbo-q5_0.bin --port $PORT &"
-fi
-
-# --- 5. Verifier ----------------------------------------------------------
-say ""
-say "${BOLD}5. Verification${RESET}"
-sleep 3
-PLUME_PORT=$PORT "$BIN/plume" check || true
-
-# --- Le PATH -------------------------------------------------------------
-# Un raccourci du bureau a besoin du chemin complet, mais taper `plume` dans un
-# terminal ne marche que si ~/.local/bin est dans le PATH. On le verifie et on
-# dit quoi faire, plutot que de laisser un « plume : commande introuvable ».
+# --- 5. Le PATH ------------------------------------------------------------
 case ":$PATH:" in
   *":$BIN:"*) ;;
   *)
-    warn "$BIN n'est pas dans ton PATH : la commande « plume » ne sera pas trouvee."
-    warn "  Ajoute cette ligne a la fin de ~/.bashrc :"
+    warn "$BIN n'est pas dans ton PATH : la commande « plume » serait introuvable."
+    warn "  Ajoute cette ligne a la fin de ~/.bashrc, puis rouvre le terminal :"
     warn "    export PATH=\"\$HOME/.local/bin:\$PATH\""
-    warn "  puis ferme et rouvre le terminal."
     ;;
 esac
+
+# --- 6. Verifier -----------------------------------------------------------
+say ""
+say "${BOLD}5. Verification${RESET}"
+"$BIN/plume" check || true
 
 say ""
 ok "Plume est installe."
 say ""
-say "  ${BOLD}Essayer :${RESET}        $BIN/plume listen"
-say "  ${BOLD}Raccourci :${RESET}      assigne « $BIN/plume trigger » a une touche"
-say "                     (Parametres > Clavier > Raccourcis, voir le README)"
-say "  ${BOLD}Changer de modele :${RESET} $BIN/plume models"
+say "  ${BOLD}Essayer :${RESET}      $BIN/plume listen"
+say "  ${BOLD}Raccourci :${RESET}    assigne « $BIN/plume trigger » a une touche"
+say "                   (Parametres > Clavier > Raccourcis, voir le README)"
+say "  ${BOLD}Modeles :${RESET}      $BIN/plume models"
+say ""
+say "  ${DIM}Le moteur se lance tout seul au premier usage.${RESET}"
 say ""
