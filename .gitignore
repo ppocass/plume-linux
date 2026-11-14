@@ -1,5 +1,3 @@
-# Le binaire est reconstruit par install.sh ; on ne versionne pas les sorties
-# de compilation.
 .build/
 *.o
 pill
