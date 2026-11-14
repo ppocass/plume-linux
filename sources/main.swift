@@ -299,6 +299,7 @@ default:
       plume models      choisir un modele (et le telecharger)
       plume check       verifier l'installation
 
-    Le moteur whisper-server doit tourner. Voir install.sh.
+    Le moteur whisper-server est lance automatiquement s'il ne tourne pas.
+    Configuration : ~/.config/plume/local.json
     """)
 }
