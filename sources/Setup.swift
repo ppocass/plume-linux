@@ -205,18 +205,36 @@ enum Setup {
 
     /// La langue du Mac (« fr », « en »…).
     static var systemLanguage: String {
-        // LANG / LC_ALL avant Locale : sous Linux, Locale.preferredLanguages
-        // rend « en » quand aucune locale n'est configuree (serveur, SSH,
-        // conteneur), ce qui ferait une interface anglaise a un utilisateur
-        // francais. Les distributions ecrivent la locale choisie dans LANG.
-        for key in ["LC_ALL", "LC_MESSAGES", "LANG"] {
-            if let v = ProcessInfo.processInfo.environment[key], v.count >= 2 {
-                let code = String(v.prefix(2)).lowercased()
-                if code != "c" && code != "po" { return code }   // C / POSIX : pas de langue
+        // Sous Linux, la langue se lit a trois endroits, dans cet ordre :
+        //   1. LC_ALL / LANG de l'environnement (le plus proche de l'actuel)
+        //   2. /etc/default/locale ou /etc/locale.conf — ce que la distribution
+        //      a enregistre quand l'utilisateur a choisi sa langue. C'est la
+        //      source la plus fiable : une session SSH ou un raccourci du
+        //      bureau n'heritent pas toujours de LANG.
+        //   3. Locale.preferredLanguages, qui rend « en » par defaut.
+        // Faute de tout cela, Plume est francophone : francais.
+        func code(_ raw: String) -> String? {
+            let v = raw.trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: "\"'")))
+            guard v.count >= 2 else { return nil }
+            let c = String(v.prefix(2)).lowercased()
+            return (c == "c" || c == "po" || !c.allSatisfy(\.isLetter)) ? nil : c
+        }
+
+        for key in ["LC_ALL", "LANG", "LC_MESSAGES"] {
+            if let v = ProcessInfo.processInfo.environment[key], let c = code(v) { return c }
+        }
+
+        for path in ["/etc/default/locale", "/etc/locale.conf"] {
+            guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+            for line in text.split(whereSeparator: \.isNewline) {
+                let parts = line.split(separator: "=", maxSplits: 1)
+                guard parts.count == 2, parts[0].hasPrefix("LANG") || parts[0].hasPrefix("LC_ALL") else { continue }
+                if let c = code(String(parts[1])) { return c }
             }
         }
-        let preferred = String((Locale.preferredLanguages.first ?? "fr").prefix(2))
-        return preferred == "en" ? "fr" : preferred   // defaut francophone
+
+        let preferred = String((Locale.preferredLanguages.first ?? "fr").prefix(2)).lowercased()
+        return preferred == "en" ? "fr" : preferred
     }
 }
 
