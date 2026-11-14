@@ -146,6 +146,15 @@ download_model whisper-turbo-q5 ggml-large-v3-turbo-q5_0.bin \
 say ""
 say "${BOLD}4. Configuration${RESET}"
 
+# Le port : 8090 est celui du catalogue Plume, mais il est souvent deja pris
+# (Docker, crowdsec…). On le choisit AVANT d'ecrire la configuration.
+PORT=8090
+if command -v ss >/dev/null && ss -lptn 2>/dev/null | grep -q ":8090 "; then
+  PORT=8091
+  warn "le port 8090 est deja pris : le moteur prendra $PORT"
+  warn "  (le port est enregistre dans la configuration, rien a faire a la main)"
+fi
+
 mkdir -p "$CONFIG"
 if [ ! -f "$CONFIG/local.json" ]; then
   cat > "$CONFIG/local.json" <<EOF
@@ -160,14 +169,6 @@ EOF
   ok "configuration dans $CONFIG/local.json (port $PORT)"
 else
   ok "configuration deja presente (gardee telle quelle)"
-fi
-
-# Le port : 8090 est le port du catalogue Plume, mais il est parfois deja pris.
-PORT=8090
-if command -v ss >/dev/null && ss -lptn 2>/dev/null | grep -q ":8090 "; then
-  PORT=8091
-  warn "le port 8090 est deja pris : le moteur prendra $PORT"
-  warn "  (le port est enregistre dans la configuration, rien a faire a la main)"
 fi
 
 mkdir -p "$HOME/.config/systemd/user"
@@ -197,6 +198,20 @@ say ""
 say "${BOLD}5. Verification${RESET}"
 sleep 3
 PLUME_PORT=$PORT "$BIN/plume" check || true
+
+# --- Le PATH -------------------------------------------------------------
+# Un raccourci du bureau a besoin du chemin complet, mais taper `plume` dans un
+# terminal ne marche que si ~/.local/bin est dans le PATH. On le verifie et on
+# dit quoi faire, plutot que de laisser un « plume : commande introuvable ».
+case ":$PATH:" in
+  *":$BIN:"*) ;;
+  *)
+    warn "$BIN n'est pas dans ton PATH : la commande « plume » ne sera pas trouvee."
+    warn "  Ajoute cette ligne a la fin de ~/.bashrc :"
+    warn "    export PATH=\"\$HOME/.local/bin:\$PATH\""
+    warn "  puis ferme et rouvre le terminal."
+    ;;
+esac
 
 say ""
 ok "Plume est installe."
