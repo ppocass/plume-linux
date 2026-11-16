@@ -1,5 +1,11 @@
 # Plume pour Linux
 
+> **Nouvelle version : [Plume universelle](https://github.com/ppocass/plume-universal)** (Tauri + Rust, 16/11/2026).
+> Même interface que Plume sur Mac, assistant de premier lancement, paquet `.deb` à double-cliquer, et le moteur
+> **Parakeet v3**, environ 20 fois plus rapide que Whisper sur un PC sans carte graphique. Cette bêta-ci reste
+> disponible mais ne sera plus mise à jour.
+
+
 [Plume](https://github.com/ppocass/plume) est une dictée locale : on appuie sur
 une touche, on parle, le texte apparaît là où est le curseur. Tout se passe sur
 la machine, rien ne part dans le cloud.
